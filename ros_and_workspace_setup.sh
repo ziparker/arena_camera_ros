@@ -4,8 +4,8 @@
 # MAIN VARS TO CHANGE
 #
 ARENA_INSTALLATION_ROOT="$HOME/ArenaSDK_Linux_x64"
-ARENA_ROS_WORDSPACE_TO_SETUP="$HOME/arena_camera_ros/catkin_ws" #change to workspace location
-INSTALL_ROS=0
+ARENA_ROS_WORDSPACE_TO_SETUP=`pwd` #change to workspace location
+INSTALL_ROS=1
 
 
 
