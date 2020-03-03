@@ -31,7 +31,7 @@ if [ $CURR_OS = "xenial" ]; then
     ROS_DIS="kinetic"
 else
     echo "$CURR_OS is not saupported yet"
-    exit(-1)
+    exit -1
 fi
 
 ############################################################
