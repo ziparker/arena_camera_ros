@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"name": "ARENA_CAMERA_PKG",
+			"path": "./catkin_ws/src/arena_camera"
+		},
+		{
+			"name": "CAMERA_CTRL_MSGS_PKG",
+			"path": "./catkin_ws/src/camera_control_msgs"
+		},
+		{
+			"name": "REPO_ROOT",
+			"path": "."
+		},
+		{
+			"path": "../arena_camera_ros2"
+		}
+	],
+	"extensions": {
+		"recommendations": [
+			"ms-iot.vscode-ros"
+		]
+	},
+	"settings": {}
+}
