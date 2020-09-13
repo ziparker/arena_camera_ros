@@ -29,34 +29,41 @@
 
 #ifndef ARENA_CAMERA_ARENA_CAMERA_NODE_H
 #define ARENA_CAMERA_ARENA_CAMERA_NODE_H
-#include <actionlib/server/simple_action_server.h>
-#include <arena_camera/internal/ArenaApi.h>
-#include <camera_info_manager/camera_info_manager.h>
-#include <cv_bridge/cv_bridge.h>
-#include <image_geometry/pinhole_camera_model.h>
-#include <image_transport/image_transport.h>
+
+// STD
+#include <string>
+
+// ROS sys dep
+#include <boost/thread.hpp>
+
+// ROS
 #include <ros/ros.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/image_encodings.h>
-#include <boost/thread.hpp>
-#include <string>
 
-#include <arena_camera/arena_camera.h>
-#include <arena_camera/arena_camera_parameter.h>
+#include <diagnostic_updater/diagnostic_updater.h>
+#include <diagnostic_updater/publisher.h>
 
-#include <camera_control_msgs/SetBinning.h>
 #include <camera_control_msgs/SetBool.h>
+#include <camera_control_msgs/SetBinning.h>
 #include <camera_control_msgs/SetBrightness.h>
 #include <camera_control_msgs/SetExposure.h>
 #include <camera_control_msgs/SetGain.h>
 #include <camera_control_msgs/SetGamma.h>
 #include <camera_control_msgs/SetROI.h>
 #include <camera_control_msgs/SetSleeping.h>
-
 #include <camera_control_msgs/GrabImagesAction.h>
+ 
+#include <actionlib/server/simple_action_server.h>
+#include <camera_info_manager/camera_info_manager.h>
+#include <image_geometry/pinhole_camera_model.h>
+#include <image_transport/image_transport.h>
+#include <cv_bridge/cv_bridge.h>
 
-#include <diagnostic_updater/diagnostic_updater.h>
-#include <diagnostic_updater/publisher.h>
+// Arena
+#include <arena_camera/internal/ArenaApi.h>
+#include <arena_camera/arena_camera.h>
+#include <arena_camera/arena_camera_parameter.h>
 
 namespace arena_camera
 {

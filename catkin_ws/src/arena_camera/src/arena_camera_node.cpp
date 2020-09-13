@@ -55,6 +55,7 @@ using sensor_msgs::CameraInfoPtr;
 ArenaCameraNode::ArenaCameraNode()
   : nh_("~")
   , arena_camera_parameter_set_()
+  // srv init
   , set_binning_srv_(nh_.advertiseService("set_binning", &ArenaCameraNode::setBinningCallback, this))
   , set_roi_srv_(nh_.advertiseService("set_roi", &ArenaCameraNode::setROICallback, this))
   , set_exposure_srv_(nh_.advertiseService("set_exposure", &ArenaCameraNode::setExposureCallback, this))
@@ -63,7 +64,9 @@ ArenaCameraNode::ArenaCameraNode()
   , set_brightness_srv_(nh_.advertiseService("set_brightness", &ArenaCameraNode::setBrightnessCallback, this))
   , set_sleeping_srv_(nh_.advertiseService("set_sleeping", &ArenaCameraNode::setSleepingCallback, this))
   , set_user_output_srvs_()
+  // Arena
   , arena_camera_(nullptr)
+  // others
   , it_(new image_transport::ImageTransport(nh_))
   , img_raw_pub_(it_->advertiseCamera("image_raw", 1))
   , img_rect_pub_(nullptr)
@@ -72,7 +75,7 @@ ArenaCameraNode::ArenaCameraNode()
   , grab_imgs_rect_as_(nullptr)
   , pinhole_model_(nullptr)
   , cv_bridge_img_rect_(nullptr)
-  , camera_info_manager_(new camera_info_manager::CameraInfoManager(nh_))
+  , camera_info_manager_(new camera_info_manager::CameraInfoManager(nh_)) // should this be freed in ~() ?
   , sampling_indices_()
   , brightness_exp_lut_()
   , is_sleeping_(false)
@@ -346,9 +349,12 @@ bool ArenaCameraNode::setImageEncoding(const std::string& ros_encoding)
     }
     else
     {
+      std::string fallbackPixelFormat = Arena::GetNodeValue<GenICam::gcstring>(pDevice_->GetNodeMap(), "PixelFormat").c_str();
       ROS_ERROR_STREAM("Can't convert ROS encoding '" << ros_encoding
                                                       << "' to a corresponding GenAPI encoding! Will use current "
-                                                      << "pixel format as fallback!");
+                                                      << "pixel format ( "
+                                                      << fallbackPixelFormat
+                                                      << " ) as fallback!"); 
       return false;
     }
   }
@@ -373,19 +379,143 @@ bool ArenaCameraNode::setImageEncoding(const std::string& ros_encoding)
 
 bool ArenaCameraNode::startGrabbing()
 {
+  auto  pNodeMap = pDevice_->GetNodeMap();
+
   try
   {
+    //
+    // Arena device prior streaming settings
+    //
+
+    //
+    // PIXELFORMAT
+    //
     setImageEncoding(arena_camera_parameter_set_.imageEncoding());
 
-    GenApi::CStringPtr pTriggerMode = pDevice_->GetNodeMap()->GetNode("TriggerMode");
+    //
+    // TRIGGER MODE
+    //
+    GenApi::CStringPtr pTriggerMode = pNodeMap->GetNode("TriggerMode");
     if (GenApi::IsWritable(pTriggerMode))
     {
-      Arena::SetNodeValue<GenICam::gcstring>(pDevice_->GetNodeMap(), "TriggerMode", "On");
-      Arena::SetNodeValue<GenICam::gcstring>(pDevice_->GetNodeMap(), "TriggerSource", "Software");
+      Arena::SetNodeValue<GenICam::gcstring>(pNodeMap, "TriggerMode", "On");
+      Arena::SetNodeValue<GenICam::gcstring>(pNodeMap, "TriggerSource", "Software");
     }
 
     //
-    // // Initial setting of the CameraInfo-msg, assuming no calibration given
+    // FRAMERATE
+    //
+    auto cmdlnParamFrameRate = arena_camera_parameter_set_.frameRate();
+    auto currentFrameRate = Arena::GetNodeValue<double>(pNodeMap , "AcquisitionFrameRate");
+    auto maximumFrameRate = GenApi::CFloatPtr(pNodeMap->GetNode("AcquisitionFrameRate"))->GetMax();
+
+    // requested framerate larger than device max so we trancate it
+    if (cmdlnParamFrameRate >= maximumFrameRate)
+    {
+      arena_camera_parameter_set_.setFrameRate(nh_, maximumFrameRate);
+      
+      ROS_WARN("Desired framerate %.2f Hz (rounded) is higher than max possible. Will limit "
+              "framerate device max : %.2f Hz (rounded)", cmdlnParamFrameRate, maximumFrameRate);
+    }
+    // special case:
+    // dues to inacurate float comparision we skip. If we set it it might
+    // throw becase it could be a lil larger than the max avoid the exception (double accuracy issue when setting the node) 
+    // request frame rate very close to device max
+    else if (cmdlnParamFrameRate == maximumFrameRate){
+      ROS_INFO("Framerate is %.2f Hz", cmdlnParamFrameRate);
+    }
+    // requested max frame rate
+    else if (cmdlnParamFrameRate == -1) // speacial for max frame rate available
+    {
+      arena_camera_parameter_set_.setFrameRate(nh_, maximumFrameRate);
+      
+      ROS_WARN("Framerate is set to device max : %.2f Hz", maximumFrameRate);
+    }
+    // requested framerate is valid so we set it to the device
+    else{
+      Arena::SetNodeValue<bool>(pNodeMap, "AcquisitionFrameRateEnable", true);
+      Arena::SetNodeValue<double>(pNodeMap, "AcquisitionFrameRate" , 
+                                      cmdlnParamFrameRate);
+      ROS_INFO("Framerate is set to: %.2f Hz", cmdlnParamFrameRate);
+    }
+
+    //
+    // EXPOSURE AUTO & EXPOSURE
+    //
+
+    // exposure_auto_ will be already set to false if exposure_given_ is true
+    // read params () solved the priority between them
+    if (arena_camera_parameter_set_.exposure_auto_)
+    {
+      Arena::SetNodeValue<GenICam::gcstring>(pNodeMap, "ExposureAuto", "Continuous");
+      // todo update parameter on the server
+      ROS_INFO_STREAM("Settings Exposure to auto/Continuous");
+    }
+    else
+    {
+      Arena::SetNodeValue<GenICam::gcstring>(pNodeMap, "ExposureAuto", "Off");
+      // todo update parameter on the server
+      ROS_INFO_STREAM("Settings Exposure to off/false");
+    }
+
+    if (arena_camera_parameter_set_.exposure_given_)
+     {
+      float reached_exposure;
+      if (setExposure(arena_camera_parameter_set_.exposure_, reached_exposure))
+      {
+        // Note: ont update the ros param because it might keep 
+        // decreasing or incresing overtime when rerun
+        ROS_INFO_STREAM("Setting exposure to " << arena_camera_parameter_set_.exposure_
+                                               << ", reached: " << reached_exposure);
+      }
+    }
+
+    //
+    // GAIN
+    //
+    
+    // gain_auto_ will be already set to false if gain_given_ is true
+    // read params () solved the priority between them
+    if (arena_camera_parameter_set_.gain_auto_)
+    {
+      Arena::SetNodeValue<GenICam::gcstring>(pNodeMap, "GainAuto", "Continuous");
+      // todo update parameter on the server
+      ROS_INFO_STREAM("Settings Gain to auto/Continuous");
+    }
+    else
+    {
+      Arena::SetNodeValue<GenICam::gcstring>(pNodeMap, "GainAuto", "Off");
+      // todo update parameter on the server
+      ROS_INFO_STREAM("Settings Gain to off/false");
+    }
+
+    if (arena_camera_parameter_set_.gain_given_)
+    {
+      float reached_gain;
+      if (setGain(arena_camera_parameter_set_.gain_, reached_gain))
+      {
+        // Note: ont update the ros param because it might keep 
+        // decreasing or incresing overtime when rerun
+        ROS_INFO_STREAM("Setting gain to: " << arena_camera_parameter_set_.gain_ << ", reached: " << reached_gain);
+      }
+    }
+
+    //
+    // GAMMA
+    //
+    if (arena_camera_parameter_set_.gamma_given_)
+    {
+      float reached_gamma;
+      if (setGamma(arena_camera_parameter_set_.gamma_, reached_gamma))
+      {
+        ROS_INFO_STREAM("Setting gamma to " << arena_camera_parameter_set_.gamma_ << ", reached: " << reached_gamma);
+      }
+    }
+
+    // ------------------------------------------------------------------------
+
+    //
+    //  Initial setting of the CameraInfo-msg, assuming no calibration given
     CameraInfo initial_cam_info;
     setupInitialCameraInfo(initial_cam_info);
     camera_info_manager_->setCameraInfo(initial_cam_info);
@@ -399,7 +529,7 @@ bool ArenaCameraNode::startGrabbing()
       ROS_DEBUG_STREAM("CameraInfoURL should have following style: "
                        << "'file:///full/path/to/local/file.yaml' or "
                        << "'file://${ROS_HOME}/camera_info/${NAME}.yaml'");
-      ROS_WARN("Will only provide distorted /image_raw images!");
+      ROS_WARN_STREAM("Will only provide distorted /image_raw images!");
     }
     else
     {
@@ -414,7 +544,7 @@ bool ArenaCameraNode::startGrabbing()
       }
       else
       {
-        ROS_WARN("Will only provide distorted /image_raw images!");
+        ROS_WARN_STREAM("Will only provide distorted /image_raw images!");
       }
     }
 
@@ -440,21 +570,6 @@ bool ArenaCameraNode::startGrabbing()
       }
     }
 
-    if (arena_camera_parameter_set_.exposure_given_)
-    {
-      float reached_exposure;
-      if (setExposure(arena_camera_parameter_set_.exposure_, reached_exposure))
-      {
-        ROS_INFO_STREAM("Setting exposure to " << arena_camera_parameter_set_.exposure_
-                                               << ", reached: " << reached_exposure);
-      }
-    }
-    else if (arena_camera_parameter_set_.brightness_given_ && arena_camera_parameter_set_.exposure_auto_)
-    {
-      Arena::SetNodeValue<GenICam::gcstring>(pDevice_->GetNodeMap(), "ExposureAuto", "Continuous");
-      ROS_INFO_STREAM("Settings Exposure to auto");
-    }
-
     // if (arena_camera_parameter_set_.image_encoding_given_)
     // {
     // 	float reached_image_encoding;
@@ -465,25 +580,11 @@ bool ArenaCameraNode::startGrabbing()
     // 	}
     // }
 
-    if (arena_camera_parameter_set_.gain_given_)
-    {
-      float reached_gain;
-      if (setGain(arena_camera_parameter_set_.gain_, reached_gain))
-      {
-        ROS_INFO_STREAM("Setting gain to: " << arena_camera_parameter_set_.gain_ << ", reached: " << reached_gain);
-      }
-    }
-
-    if (arena_camera_parameter_set_.gamma_given_)
-    {
-      float reached_gamma;
-      if (setGamma(arena_camera_parameter_set_.gamma_, reached_gamma))
-      {
-        ROS_INFO_STREAM("Setting gamma to " << arena_camera_parameter_set_.gamma_ << ", reached: " << reached_gamma);
-      }
-    }
-
     Arena::SetNodeValue<GenICam::gcstring>(pDevice_->GetTLStreamNodeMap(), "StreamBufferHandlingMode", "NewestOnly");
+
+    //
+    // Trigger Image
+    //
 
     pDevice_->StartStream();
     bool isTriggerArmed = false;
@@ -492,9 +593,9 @@ bool ArenaCameraNode::startGrabbing()
     {
       do
       {
-        isTriggerArmed = Arena::GetNodeValue<bool>(pDevice_->GetNodeMap(), "TriggerArmed");
+        isTriggerArmed = Arena::GetNodeValue<bool>(pNodeMap, "TriggerArmed");
       } while (isTriggerArmed == false);
-      Arena::ExecuteNode(pDevice_->GetNodeMap(), "TriggerSoftware");
+      Arena::ExecuteNode(pNodeMap, "TriggerSoftware");
     }
 
     pImage_ = pDevice_->GetImage(5000);
@@ -509,6 +610,8 @@ bool ArenaCameraNode::startGrabbing()
     return false;
   }
 
+  // --------------------------------------------------------------------------
+
   img_raw_msg_.header.frame_id = arena_camera_parameter_set_.cameraFrame();
   // Encoding of pixels -- channel meaning, ordering, size
   // taken from the list of strings in include/sensor_msgs/image_encodings.h
@@ -520,11 +623,11 @@ bool ArenaCameraNode::startGrabbing()
   img_raw_msg_.step = img_raw_msg_.width * (pImage_->GetBitsPerPixel() / 8);
 
   if (!camera_info_manager_->setCameraName(
-          std::string(Arena::GetNodeValue<GenICam::gcstring>(pDevice_->GetNodeMap(), "DeviceUserID").c_str())))
+          std::string(Arena::GetNodeValue<GenICam::gcstring>(pNodeMap, "DeviceUserID").c_str())))
   {
     // valid name contains only alphanumeric signs and '_'
     ROS_WARN_STREAM(
-        "[" << std::string(Arena::GetNodeValue<GenICam::gcstring>(pDevice_->GetNodeMap(), "DeviceUserID").c_str())
+        "[" << std::string(Arena::GetNodeValue<GenICam::gcstring>(pNodeMap, "DeviceUserID").c_str())
             << "] name not valid for camera_info_manager");
   }
 
@@ -537,23 +640,6 @@ bool ArenaCameraNode::startGrabbing()
                   << "gain = " << currentGain() << ", "
                   << "gamma = " << currentGamma() << ", "
                   << "shutter mode = " << arena_camera_parameter_set_.shutterModeString());
-
-  // Framerate Settings
-  pNodeMap_ = pDevice_->GetNodeMap();
-  auto maximumFrameRate = GenApi::CFloatPtr(pNodeMap_->GetNode("AcquisitionFrameRate"))->GetMax();
-
-  if (maximumFrameRate < arena_camera_parameter_set_.frameRate())
-  {
-    ROS_INFO("Desired framerate %.2f is higher than max possible. Will limit "
-             "framerate to: %.2f Hz",
-             arena_camera_parameter_set_.frameRate(), maximumFrameRate);
-    arena_camera_parameter_set_.setFrameRate(nh_, maximumFrameRate);
-  }
-  else if (arena_camera_parameter_set_.frameRate() == -1)
-  {
-    arena_camera_parameter_set_.setFrameRate(nh_, maximumFrameRate);
-    ROS_INFO("Max possible framerate is %.2f Hz", maximumFrameRate);
-  }
 
   pDevice_->RequeueBuffer(pImage_);
   return true;
@@ -1072,6 +1158,8 @@ void ArenaCameraNode::setupInitialCameraInfo(sensor_msgs::CameraInfo& cam_info_m
   // the same window of pixels on the camera sensor, regardless of binning
   // settings. The default setting of roi (all values 0) is considered the same
   // as full resolution (roi.width = width, roi.height = height).
+
+  // todo? do these has ti be set via Arena::GetNodeValue<int64_t>(pDevice_->GetNodeMap(), "OffsetX"); or so ?
   cam_info_msg.roi.x_offset = cam_info_msg.roi.y_offset = 0;
   cam_info_msg.roi.height = cam_info_msg.roi.width = 0;
 }

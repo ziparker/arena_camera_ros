@@ -3,7 +3,7 @@
 #
 # MAIN VARS TO CHANGE
 #
-ARENA_INSTALLATION_ROOT="$HOME/ArenaSDK_Linux_x64_0.1.40/"
+ARENA_INSTALLATION_ROOT="$HOME/ArenaSDK_Linux_x64/"
 ARENA_ROS_WORDSPACE_TO_SETUP="$HOME/arena_camera_ros/catkin_ws" #change to workspace location
 INSTALL_ROS=1
 
@@ -16,6 +16,7 @@ INSTALL_ROS=1
 #
 ############################################################
 
+
 set -x #echo on
 
 # only run with sudo
@@ -27,12 +28,12 @@ fi
 # info 
 CURR_OS="$(lsb_release -sc)"
 
-#if [ $CURR_OS = "xenial" ]; then
-ROS_DIS="kinetic"
-#else
-#    echo "$CURR_OS is not saupported yet"
-#    exit(-1)
-#fi
+if [ $CURR_OS = "xenial" ]; then
+    ROS_DIS="kinetic"
+else
+    echo "$CURR_OS is might not be supported yet! check https://support.thinklucid.com/using-ros-for-linux/"
+    exit(-1)
+fi
 
 ############################################################
 #   ROS section
@@ -71,7 +72,7 @@ if [ $INSTALL_ROS -eq 1 ]; then
     sudo apt-get install python-rosinstall \
                         python-rosinstall-generator \
                         python-wstool \
-                        build-essential python-
+                        build-essential
 
 fi
 ############################################################
