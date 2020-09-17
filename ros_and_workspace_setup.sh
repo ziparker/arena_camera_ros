@@ -3,9 +3,9 @@
 #
 # MAIN VARS TO CHANGE
 #
-ARENA_INSTALLATION_ROOT="$HOME/ArenaSDK_Linux_x64"
+ARENA_INSTALLATION_ROOT="$HOME/ArenaSDK_Linux_x64/"
 ARENA_ROS_WORDSPACE_TO_SETUP="$HOME/arena_camera_ros/catkin_ws" #change to workspace location
-INSTALL_ROS=0
+INSTALL_ROS=1
 
 
 
@@ -15,6 +15,7 @@ INSTALL_ROS=0
 #    $ARENA_INSTALLATION_ROOT point to ArenaSDK binaries
 #
 ############################################################
+
 
 set -x #echo on
 
@@ -30,7 +31,7 @@ CURR_OS="$(lsb_release -sc)"
 if [ $CURR_OS = "xenial" ]; then
     ROS_DIS="kinetic"
 else
-    echo "$CURR_OS is not saupported yet"
+    echo "$CURR_OS is might not be supported yet! check https://support.thinklucid.com/using-ros-for-linux/"
     exit(-1)
 fi
 
@@ -43,6 +44,7 @@ if [ $INSTALL_ROS -eq 1 ]; then
     # Set up your system to acquire software from packages.ros.org
     sudo echo "deb http://packages.ros.org/ros/ubuntu $CURR_OS main" > /etc/apt/sources.list.d/ros-latest.list
     # Use apt-key to install the Open Robotics key to your list of trusted keys.
+    # to remove the key at uninstaltion time run `sudo apt-key del F42ED6FBAB17C654`
     sudo apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654
     # Install ROS Desktop.
     sudo apt-get update
@@ -53,14 +55,14 @@ if [ $INSTALL_ROS -eq 1 ]; then
     rosdep update
 
     # Setups ROS environment variables
-    echo "# load ROS env vars" >> ~/.bashrc
-    echo "source /opt/ros/$ROS_DIS/setup.bash" >> ~/.bashrc
+    #echo "# load ROS env vars" >> ~/.bashrc
+    #echo "source /opt/ros/$ROS_DIS/setup.bash" >> ~/.bashrc
 
-    echo "# load ROS env vars" >> ~/.zshrc
-    echo "source /opt/ros/$ROS_DIS/setup.zsh" >> ~/.zshrc
+    #echo "# load ROS env vars" >> ~/.zshrc
+    #echo "source /opt/ros/$ROS_DIS/setup.zsh" >> ~/.zshrc
 
     # would not have an effect if script is not run in intractive mode
-    source ~/.bashrc 
+    #source ~/.bashrc 
 
     #
     # Install ROS package workspace dependencies. This will allow 
@@ -84,10 +86,10 @@ fi
 # Set up your ARENA_ROOT environment variable. This
 # environment variable should be the path where you have
 # installed Arena SDK.
-echo "export ARENA_ROOT=$ARENA_INSTALLATION_ROOT">> ~/.bashrc
-echo "export ARENA_ROOT=$ARENA_INSTALLATION_ROOT">> ~/.zshrc
+#echo "export ARENA_ROOT=$ARENA_INSTALLATION_ROOT">> ~/.bashrc
+#echo "export ARENA_ROOT=$ARENA_INSTALLATION_ROOT">> ~/.zshrc
 # would not have an effect if script is not run in intractive mode
-source ~/.bashrc
+#source ~/.bashrc
 
 ############################################################
 # Workspace section
