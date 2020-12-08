@@ -377,6 +377,36 @@ bool ArenaCameraNode::setImageEncoding(const std::string& ros_encoding)
   return true;
 }
 
+bool ArenaCameraNode::setupPTP(const bool enable_ptp)
+{
+     try
+     {
+       GenApi::CBooleanPtr pPtpEnable = pDevice_->GetNodeMap()->GetNode("PtpEnable");
+       if (GenApi::IsWritable(pPtpEnable))
+       {        
+         Arena::SetNodeValue<bool>(pDevice_->GetNodeMap(), "PtpEnable", enable_ptp);
+         if (enable_ptp)
+         {
+           Arena::SetNodeValue<bool>(pDevice_->GetNodeMap(), "PtpSlaveOnly", true);
+           ROS_INFO_STREAM("Enabling PTP for streaming; using PTP timestamps.");  
+         }
+         else
+         {
+           ROS_INFO_STREAM("Disabling PTP for streaming; using software timestamps.");
+         }
+       }
+     }
+     catch (const GenICam::GenericException& e)
+     {
+       ROS_ERROR_STREAM("An exception while setting PTP to '" << enable_ptp
+                                                              << "' occurred: " << e.GetDescription());
+       return false;
+     }
+
+     return true;
+}
+
+
 bool ArenaCameraNode::startGrabbing()
 {
   auto  pNodeMap = pDevice_->GetNodeMap();
@@ -391,6 +421,11 @@ bool ArenaCameraNode::startGrabbing()
     // PIXELFORMAT
     //
     setImageEncoding(arena_camera_parameter_set_.imageEncoding());
+
+    //
+    // ENABLE PTP
+    //
+    setupPTP(arena_camera_parameter_set_.enablePTP());
 
     //
     // TRIGGER MODE
@@ -781,7 +816,18 @@ bool ArenaCameraNode::grabImage()
     img_raw_msg_.data.resize(img_raw_msg_.height * img_raw_msg_.step);
     memcpy(&img_raw_msg_.data[0], pImage_->GetData(), img_raw_msg_.height * img_raw_msg_.step);
 
-    img_raw_msg_.header.stamp = ros::Time::now();
+    if (arena_camera_parameter_set_.enablePTP())
+    {
+      const auto image_stamp = pImage_->GetTimestamp();  
+      uint64_t nsecs = fmod(image_stamp, 1e9);
+      uint64_t secs = image_stamp / 1e9;
+      ros::Time stamp(secs, nsecs);
+      img_raw_msg_.header.stamp = stamp; 
+    }
+    else
+    {
+      img_raw_msg_.header.stamp = ros::Time::now();
+    }
 
     pDevice_->RequeueBuffer(pImage_);
     return true;

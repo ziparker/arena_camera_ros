@@ -117,6 +117,8 @@ protected:
 
   bool setImageEncoding(const std::string& ros_encoding);
 
+  bool setupPTP(const bool enable_ptp);
+
   /**
   * Initializing of img_rect_pub_, grab_img_rect_as_ and the pinhole_model_,
   * in case that a valid camera info has been set

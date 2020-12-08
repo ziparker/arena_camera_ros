@@ -50,11 +50,11 @@ ArenaCameraParameter::ArenaCameraParameter()
   , binning_x_given_(false)
   , binning_y_given_(false)
   , downsampling_factor_exp_search_(1)
-  ,
+  , enable_ptp_(false)
   // ##########################
   //  image intensity settings
   // ##########################
-  exposure_(10000.0)
+  , exposure_(10000.0)
   , exposure_given_(false)
   , gain_(0.5)
   , gain_given_(false)
@@ -86,6 +86,7 @@ void ArenaCameraParameter::readFromRosParameterServer(const ros::NodeHandle& nh)
 
   nh.param<std::string>("device_user_id", device_user_id_, "");
 
+  nh.param<bool>("enable_ptp", enable_ptp_, false);
   if (nh.hasParam("frame_rate"))
   {
     nh.getParam("frame_rate", frame_rate_);
@@ -463,6 +464,11 @@ const std::string& ArenaCameraParameter::imageEncoding() const
   return image_encoding_;
 }
 
+const bool ArenaCameraParameter::enablePTP() const
+{
+  return enable_ptp_;
+}
+
 const std::string& ArenaCameraParameter::cameraFrame() const
 {
   return camera_frame_;
@@ -477,6 +483,12 @@ void ArenaCameraParameter::setFrameRate(const ros::NodeHandle& nh, const double&
 {
   frame_rate_ = frame_rate;
   nh.setParam("frame_rate", frame_rate_);
+}
+
+void ArenaCameraParameter::setEnablePTP(const ros::NodeHandle& nh, const bool enable_ptp)
+{
+  enable_ptp_ = enable_ptp;
+  nh.setParam("enable_ptp", enable_ptp_);
 }
 
 const std::string& ArenaCameraParameter::cameraInfoURL() const

@@ -94,6 +94,11 @@ public:
   const std::string& imageEncoding() const;
 
   /**
+   * Getter for the enable_ptp_ read from ros-parameter server
+   */
+  const bool enablePTP() const;
+
+  /**
    * Setter for the frame_rate_ initially set from ros-parameter server
    * The frame rate needs to be updated with the value the camera supports
    */
@@ -110,6 +115,10 @@ public:
    */
   void setCameraInfoURL(const ros::NodeHandle& nh, const std::string& camera_info_url);
 
+  /**
+   * Setter for the enable_ptp_ variable.
+   */
+  void setEnablePTP(const ros::NodeHandle& nh, const bool enable_ptp);
 public:
   /** Binning factor to get downsampled images. It refers here to any camera
    * setting which combines rectangular neighborhoods of pixels into larger
@@ -328,6 +337,8 @@ protected:
    * 'bayer_gbrg8', 'bayer_rggb8' and 'yuv422'
    */
   std::string image_encoding_;
+
+  bool enable_ptp_;
 };
 
 }  // namespace arena_camera
