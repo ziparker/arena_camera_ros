@@ -387,7 +387,7 @@ bool ArenaCameraNode::configureMaxFrameRateSettings()
 {
   try
   {
-    GenApi::CBooleanPtr pThroughputReserve = pDevice_->GetNodeMap()->GetNode("DeviceLinkThroughputReserve");
+    GenApi::CIntegerPtr pThroughputReserve = pDevice_->GetNodeMap()->GetNode("DeviceLinkThroughputReserve");
     if (GenApi::IsWritable(pThroughputReserve))
     {        
       Arena::SetNodeValue<int64_t>(pDevice_->GetNodeMap(), "DeviceLinkThroughputReserve", 0);
