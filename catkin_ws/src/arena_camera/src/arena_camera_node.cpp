@@ -394,6 +394,7 @@ bool ArenaCameraNode::configureMaxFrameRateSettings()
       ROS_INFO_STREAM("Set DeviceLinkThroughputReserve to 0");
       return true;
     }
+    ROS_WARN_STREAM("Cannot write to DeviceLinkThroughputReserve node.");
     return false;
   }
   catch (const GenICam::GenericException& e)
