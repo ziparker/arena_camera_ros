@@ -133,6 +133,12 @@ void ArenaCameraNode::init()
     return;
   }
 
+  if (!configureMaxFrameRateSettings())
+  {
+    ROS_INFO_STREAM("Will not configure DeviceLinkThroughputReserve "
+                    << "or StreamChannelPacketDelay");
+  }
+
   // starting the grabbing procedure with the desired image-settings
   if (!startGrabbing())
   {
@@ -375,6 +381,26 @@ bool ArenaCameraNode::setImageEncoding(const std::string& ros_encoding)
     return false;
   }
   return true;
+}
+
+bool ArenaCameraNode::configureMaxFrameRateSettings()
+{
+  try
+  {
+    GenApi::CBooleanPtr pThroughputReserve = pDevice_->GetNodeMap()->GetNode("DeviceLinkThroughputReserve");
+    if (GenApi::IsWritable(pThroughputReserve))
+    {        
+      Arena::SetNodeValue<int64_t>(pDevice_->GetNodeMap(), "DeviceLinkThroughputReserve", 0);
+      ROS_INFO_STREAM("Set DeviceLinkThroughputReserve to 0");
+      return true;
+    }
+    return false;
+  }
+  catch (const GenICam::GenericException& e)
+  {
+    ROS_ERROR_STREAM("An exception while setting Device Link Throughput Reserve"); 
+    return false;
+  }
 }
 
 bool ArenaCameraNode::setupPTP(const bool enable_ptp)

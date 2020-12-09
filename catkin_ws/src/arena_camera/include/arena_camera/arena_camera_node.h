@@ -117,6 +117,8 @@ protected:
 
   bool setImageEncoding(const std::string& ros_encoding);
 
+  bool configureMaxFrameRateSettings();
+
   bool setupPTP(const bool enable_ptp);
 
   /**
