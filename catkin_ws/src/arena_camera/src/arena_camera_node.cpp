@@ -379,31 +379,31 @@ bool ArenaCameraNode::setImageEncoding(const std::string& ros_encoding)
 
 bool ArenaCameraNode::setupPTP(const bool enable_ptp)
 {
-     try
-     {
-       GenApi::CBooleanPtr pPtpEnable = pDevice_->GetNodeMap()->GetNode("PtpEnable");
-       if (GenApi::IsWritable(pPtpEnable))
-       {        
-         Arena::SetNodeValue<bool>(pDevice_->GetNodeMap(), "PtpEnable", enable_ptp);
-         if (enable_ptp)
-         {
-           Arena::SetNodeValue<bool>(pDevice_->GetNodeMap(), "PtpSlaveOnly", true);
-           ROS_INFO_STREAM("Enabling PTP for streaming; using PTP timestamps.");  
-         }
-         else
-         {
-           ROS_INFO_STREAM("Disabling PTP for streaming; using software timestamps.");
-         }
-       }
-     }
-     catch (const GenICam::GenericException& e)
-     {
-       ROS_ERROR_STREAM("An exception while setting PTP to '" << enable_ptp
-                                                              << "' occurred: " << e.GetDescription());
-       return false;
-     }
+  try
+  {
+    GenApi::CBooleanPtr pPtpEnable = pDevice_->GetNodeMap()->GetNode("PtpEnable");
+    if (GenApi::IsWritable(pPtpEnable))
+    {        
+      Arena::SetNodeValue<bool>(pDevice_->GetNodeMap(), "PtpEnable", enable_ptp);
+      if (enable_ptp)
+      {
+        Arena::SetNodeValue<bool>(pDevice_->GetNodeMap(), "PtpSlaveOnly", true);
+        ROS_INFO_STREAM("Enabling PTP for streaming; using PTP timestamps.");  
+      }
+      else
+      {
+        ROS_INFO_STREAM("Disabling PTP for streaming; using software timestamps.");
+      }
+    }
+  }
+  catch (const GenICam::GenericException& e)
+  {
+    ROS_ERROR_STREAM("An exception while setting PTP to '" << enable_ptp
+                                                          << "' occurred: " << e.GetDescription());
+    return false;
+  }
 
-     return true;
+  return true;
 }
 
 
