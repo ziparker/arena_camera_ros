@@ -130,9 +130,11 @@ set(ROSLINT_CPP_OPTS
 roslint_cpp( # all .h .cpp files
 )
 
-# closest doc (http://wiki.ros.org/rosbuild/CMakeLists#rosbuild_add_roslaunch_check)
-# more https://answers.ros.org/question/200359/purpose-of-roslaunch_add_file_check/
-roslaunch_add_file_check(launch)
+if(${CATKIN_ENABLE_TESTING})
+    # closest doc (http://wiki.ros.org/rosbuild/CMakeLists#rosbuild_add_roslaunch_check)
+    # more https://answers.ros.org/question/200359/purpose-of-roslaunch_add_file_check/
+    roslaunch_add_file_check(launch)
+endif()
 
 
 # -----------------------------------------------------------------------------
@@ -167,6 +169,16 @@ add_executable(
 message(STATUS "catkin_INCLUDE_DIRS = ${catkin_INCLUDE_DIRS}")
 message(STATUS "arena_sdk_INCLUDE_DIRS = ${arena_sdk_INCLUDE_DIRS}")
 message(STATUS "CMAKE_CURRENT_SOURCE_DIR = ${CMAKE_CURRENT_SOURCE_DIR}")
+
+# The Helios camera requires special encodings, which we add to ROS by
+# replacing a ros header file.
+#
+# Provide an option for enabling the use of this header in case users don't
+# want to modify their stock ros file set
+if(ARENA_ENABLE_HELIOS)
+    message(STATUS "arena ros: enabling helios support - custom image_encodings.h file will be required.")
+    target_compile_definitions(${arena_camera_node_name} -DARENA_ENABLE_HELIOS)
+endif()
 
 # needed ".h"s
 target_include_directories(
