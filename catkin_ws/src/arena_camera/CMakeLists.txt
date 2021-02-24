@@ -67,6 +67,12 @@ find_package(
         ${CATKIN_COMPONENTS}
 )
 
+#
+# Iceoryx (optional)
+#
+
+find_package(iceoryx_posh)
+find_package(iceoryx_utils)
 
 # -----------------------------------------------------------------------------
 #
@@ -194,6 +200,12 @@ target_link_libraries(
         ${catkin_LIBRARIES}
         ${arena_sdk_LIBRARIES}
 )
+
+if(iceoryx_posh_FOUND)
+    message(STATUS "building with iceoryx")
+    target_link_libraries(${arena_camera_node_name} iceoryx_posh::iceoryx_posh iceoryx_utils::iceoryx_utils)
+    target_compile_definitions(${arena_camera_node_name} PRIVATE HAVE_ICEORYX)
+endif()
 
 add_dependencies(
     ${arena_camera_node_name}

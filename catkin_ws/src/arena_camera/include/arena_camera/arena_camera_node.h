@@ -31,6 +31,7 @@
 #define ARENA_CAMERA_ARENA_CAMERA_NODE_H
 
 // STD
+#include <memory>
 #include <string>
 
 // ROS sys dep
@@ -376,6 +377,9 @@ protected:
 
   ros::Publisher* img_rect_pub_;
   image_geometry::PinholeCameraModel* pinhole_model_;
+
+  struct IoxState;
+  std::unique_ptr<IoxState> iox_state_;
 
   GrabImagesAS grab_imgs_raw_as_;
   GrabImagesAS* grab_imgs_rect_as_;

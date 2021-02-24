@@ -26,11 +26,21 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
+
+#ifdef HAVE_ICEORYX
+#include <functional>
+// include prior to following headers to avoid issues with iox
+// interface_port_data.hpp.
+#include <iceoryx_posh/runtime/posh_runtime.hpp>
+#include <iceoryx_posh/popo/publisher.hpp>
+#endif
+
 #include <GenApi/GenApi.h>
 #include <arena_camera/arena_camera_node.h>
 #include <arena_camera/encoding_conversions.h>
 #include <arena_camera/internal/ArenaApi.h>
 #include <arena_camera/internal/GenApiCustom.h>
+#include <image_transport/camera_common.h>
 #include <sensor_msgs/RegionOfInterest.h>
 #include <algorithm>
 #include <cmath>
@@ -40,6 +50,212 @@
 #include "boost/multi_array.hpp"
 
 using diagnostic_msgs::DiagnosticStatus;
+
+namespace
+{
+#ifdef HAVE_ICEORYX
+struct ScopedAction
+{
+  using Action = std::function<void(void)>;
+
+  ScopedAction(Action action):
+    action(std::move(action))
+  {
+  }
+
+  ScopedAction(const ScopedAction &) = delete;
+  ScopedAction &operator=(const ScopedAction &) = delete;
+  ScopedAction(ScopedAction &&) = default;
+  ScopedAction &operator=(ScopedAction &&) = default;
+
+  ~ScopedAction()
+  {
+    if (action)
+      action();
+  }
+
+  Action action;
+};
+
+std::unique_ptr<iox::popo::Publisher> instantiateIoxPublisher(const ros::NodeHandle &nh, const std::string &topic)
+{
+  iox::runtime::PoshRuntime::getInstance(nh.resolveName("/image_proc_debayer"));
+
+  if (topic.size() > 100)
+  {
+    throw std::invalid_argument(
+      "image_proc debayer nodelet: topic " +
+      topic + " is too long (max: 100 chars)");
+  }
+
+  iox::cxx::CString100 topicCStr;
+  topicCStr.unsafe_assign(topic);
+
+  return std::unique_ptr<iox::popo::Publisher>{
+    new iox::popo::Publisher(iox::capro::ServiceDescription{"debayer", "0", topicCStr})};
+}
+
+class IoxPublisher
+{
+public:
+  IoxPublisher() = default;
+
+  IoxPublisher(const ros::NodeHandle &nh, const std::string &topic)
+    : pub(instantiateIoxPublisher(nh, topic))
+  {
+  }
+
+  bool hasSubscribers() noexcept
+  {
+    return pub && pub->hasSubscribers();
+  }
+
+  operator bool() const noexcept
+  {
+    return !!pub;
+  }
+
+  void publish(const cv_bridge::CvImage &img)
+  {
+    if (!pub)
+      return;
+
+    iox::mepoo::ChunkHeader *chunk{ };
+    ScopedAction freeChunk([this, &chunk] { if (chunk) pub->freeChunk(chunk); });
+
+    const auto len = ros::serialization::serializationLength(img);
+    ROS_DEBUG("image ser len %u", len);
+
+    chunk = pub->allocateChunkWithHeader(len, UseDynamicSizes);
+    if (!chunk)
+      return;
+
+    ros::serialization::OStream stream(
+      reinterpret_cast<uint8_t *>(chunk->payload()),
+      static_cast<uint32_t>(chunk->m_info.m_payloadSize));
+
+    ros::serialization::serialize(stream, img);
+
+    pub->sendChunk(chunk);
+
+    // once the chunk has been sent, we don't want to free it - that's a job
+    // for the receivers.
+    chunk = nullptr;
+  }
+
+  void publish(const sensor_msgs::Image &img)
+  {
+    if (!pub)
+      return;
+
+    iox::mepoo::ChunkHeader *chunk{ };
+    ScopedAction freeChunk([this, &chunk] { if (chunk) pub->freeChunk(chunk); });
+
+    const auto len = ros::serialization::serializationLength(img);
+    ROS_DEBUG("image ser len %u", len);
+
+    chunk = pub->allocateChunkWithHeader(len, UseDynamicSizes);
+    if (!chunk)
+      return;
+
+    ros::serialization::OStream stream(
+      reinterpret_cast<uint8_t *>(chunk->payload()),
+      static_cast<uint32_t>(chunk->m_info.m_payloadSize));
+
+    ros::serialization::serialize(stream, img);
+
+    pub->sendChunk(chunk);
+
+    // once the chunk has been sent, we don't want to free it - that's a job
+    // for the receivers.
+    chunk = nullptr;
+  }
+
+  void publish(const sensor_msgs::CameraInfo &info)
+  {
+    if (!pub)
+      return;
+
+    iox::mepoo::ChunkHeader *chunk{ };
+    ScopedAction freeChunk([this, &chunk] { if (chunk) pub->freeChunk(chunk); });
+
+    const auto len = ros::serialization::serializationLength(info);
+    ROS_DEBUG("image ser len %u", len);
+
+    chunk = pub->allocateChunkWithHeader(len, UseDynamicSizes);
+    if (!chunk)
+      return;
+
+    ros::serialization::OStream stream(
+      reinterpret_cast<uint8_t *>(chunk->payload()),
+      static_cast<uint32_t>(chunk->m_info.m_payloadSize));
+
+    ros::serialization::serialize(stream, info);
+
+    pub->sendChunk(chunk);
+
+    // once the chunk has been sent, we don't want to free it - that's a job
+    // for the receivers.
+    chunk = nullptr;
+  }
+
+private:
+  enum { UseDynamicSizes = true };
+
+  std::unique_ptr<iox::popo::Publisher> pub{ };
+};
+#else
+class IoxPublisher
+{
+public:
+  IoxPublisher() = default;
+
+  IoxPublisher(const ros::NodeHandle &, const std::string &) { }
+
+  bool hasSubscribers() noexcept { return false; }
+  operator bool() const noexcept { return false; }
+
+  void publish(const cv_bridge::CvImage &) { }
+  void publish(const sensor_msgs::Image &) { }
+  void publish(const sensor_msgs::CameraInfo &) { }
+};
+#endif
+
+class IoxCameraPublisher
+{
+public:
+  IoxCameraPublisher() = default;
+
+  IoxCameraPublisher(const ros::NodeHandle &nh, const std::string &topic)
+    : img_pub(nh, topic)
+    , info_pub(nh, image_transport::getCameraInfoTopic(topic))
+  {
+  }
+
+  bool hasSubscribers() noexcept
+  {
+    return img_pub.hasSubscribers();
+  }
+
+  operator bool() const noexcept
+  {
+    return !!img_pub;
+  }
+
+  void publish(const sensor_msgs::Image &img, const sensor_msgs::CameraInfo &info)
+  {
+    if (!img_pub)
+      return;
+
+    img_pub.publish(img);
+    info_pub.publish(info);
+  }
+
+private:
+  IoxPublisher img_pub{ };
+  IoxPublisher info_pub{ };
+};
+}
 
 namespace arena_camera
 {
@@ -51,6 +267,12 @@ GenApi::INodeMap* pNodeMap_ = nullptr;
 
 using sensor_msgs::CameraInfo;
 using sensor_msgs::CameraInfoPtr;
+
+struct ArenaCameraNode::IoxState
+{
+  IoxCameraPublisher iox_raw{ };
+  IoxPublisher iox_rect{ };
+};
 
 ArenaCameraNode::ArenaCameraNode()
   : nh_("~")
@@ -69,7 +291,8 @@ ArenaCameraNode::ArenaCameraNode()
   // others
   , it_(new image_transport::ImageTransport(nh_))
   , img_raw_pub_(it_->advertiseCamera("image_raw", 1))
-  , img_rect_pub_(nullptr)
+  , img_rect_pub_()
+  , iox_state_(new IoxState)
   , grab_imgs_raw_as_(nh_, "grab_images_raw", boost::bind(&ArenaCameraNode::grabImagesRawActionExecuteCB, this, _1),
                       false)
   , grab_imgs_rect_as_(nullptr)
@@ -131,6 +354,15 @@ void ArenaCameraNode::init()
   {
     ros::shutdown();
     return;
+  }
+
+  // create iox publishers, if configured to do so.
+  bool use_iox = false;
+  nh_.param<bool>("use_iceoryx_image_pub", use_iox);
+  if (use_iox)
+  {
+    ROS_DEBUG("instantiating iox publishers");
+    iox_state_->iox_raw = IoxCameraPublisher(nh_, "image_raw");
   }
 
   if (!configureMaxFrameRateSettings())
@@ -714,6 +946,11 @@ void ArenaCameraNode::setupRectification()
     img_rect_pub_ = new ros::Publisher(nh_.advertise<sensor_msgs::Image>("image_rect", 1));
   }
 
+  if (!iox_state_->iox_rect)
+  {
+    iox_state_->iox_rect = IoxPublisher(nh_, "image_rect");
+  }
+
   if (!grab_imgs_rect_as_)
   {
     grab_imgs_rect_as_ = new GrabImagesAS(
@@ -785,9 +1022,14 @@ void ArenaCameraNode::spin()
     return;
   }
 
-  if (!isSleeping() && (img_raw_pub_.getNumSubscribers() || getNumSubscribersRect()))
+  if (!isSleeping() &&
+    (img_raw_pub_.getNumSubscribers() ||
+    getNumSubscribersRect()) ||
+    iox_state_->iox_raw.hasSubscribers() ||
+    iox_state_->iox_rect.hasSubscribers())
   {
-    if (getNumSubscribersRaw() || getNumSubscribersRect())
+    if (getNumSubscribersRaw() || getNumSubscribersRect() ||
+      iox_state_->iox_raw.hasSubscribers() || iox_state_->iox_rect.hasSubscribers())
     {
       if (!grabImage())
       {
@@ -796,7 +1038,8 @@ void ArenaCameraNode::spin()
       }
     }
 
-    if (img_raw_pub_.getNumSubscribers() > 0)
+    if (img_raw_pub_.getNumSubscribers() > 0 ||
+      iox_state_->iox_raw.hasSubscribers())
     {
       // get actual cam_info-object in every frame, because it might have
       // changed due to a 'set_camera_info'-service call
@@ -804,18 +1047,30 @@ void ArenaCameraNode::spin()
       cam_info->header.stamp = img_raw_msg_.header.stamp;
 
       // Publish via image_transport
-      img_raw_pub_.publish(img_raw_msg_, *cam_info);
+      if (img_raw_pub_.getNumSubscribers() > 0)
+        img_raw_pub_.publish(img_raw_msg_, *cam_info);
+
+      if (iox_state_->iox_raw.hasSubscribers())
+        iox_state_->iox_raw.publish(img_raw_msg_, *cam_info);
+
       ROS_INFO_ONCE("Number subscribers received");
     }
 
-    if (getNumSubscribersRect() > 0 && camera_info_manager_->isCalibrated())
+    if ((getNumSubscribersRect() > 0 || iox_state_->iox_rect.hasSubscribers()) &&
+      camera_info_manager_->isCalibrated())
     {
       cv_bridge_img_rect_->header.stamp = img_raw_msg_.header.stamp;
       assert(pinhole_model_->initialized());
       cv_bridge::CvImagePtr cv_img_raw = cv_bridge::toCvCopy(img_raw_msg_, img_raw_msg_.encoding);
       pinhole_model_->fromCameraInfo(camera_info_manager_->getCameraInfo());
       pinhole_model_->rectifyImage(cv_img_raw->image, cv_bridge_img_rect_->image);
-      img_rect_pub_->publish(*cv_bridge_img_rect_);
+
+      if (getNumSubscribersRect() > 0)
+        img_rect_pub_->publish(*cv_bridge_img_rect_);
+
+      if (iox_state_->iox_rect.hasSubscribers())
+        iox_state_->iox_rect.publish(*cv_bridge_img_rect_);
+
       ROS_INFO_ONCE("Number subscribers rect received");
     }
   }
