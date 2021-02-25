@@ -79,7 +79,7 @@ struct ScopedAction
 
 std::unique_ptr<iox::popo::Publisher> instantiateIoxPublisher(const ros::NodeHandle &nh, const std::string &topic)
 {
-  iox::runtime::PoshRuntime::getInstance(nh.resolveName("/image_proc_debayer"));
+  iox::runtime::PoshRuntime::getInstance(nh.resolveName("/arena_camera"));
 
   if (topic.size() > 100)
   {
@@ -92,7 +92,7 @@ std::unique_ptr<iox::popo::Publisher> instantiateIoxPublisher(const ros::NodeHan
   topicCStr.unsafe_assign(topic);
 
   return std::unique_ptr<iox::popo::Publisher>{
-    new iox::popo::Publisher(iox::capro::ServiceDescription{"debayer", "0", topicCStr})};
+    new iox::popo::Publisher(iox::capro::ServiceDescription{"arena_camera", "0", topicCStr})};
 }
 
 class IoxPublisher
@@ -103,6 +103,8 @@ public:
   IoxPublisher(const ros::NodeHandle &nh, const std::string &topic)
     : pub(instantiateIoxPublisher(nh, topic))
   {
+    if (pub)
+      pub->offer();
   }
 
   bool hasSubscribers() noexcept
@@ -115,7 +117,8 @@ public:
     return !!pub;
   }
 
-  void publish(const cv_bridge::CvImage &img)
+  template <typename T>
+  void publish(const T &img)
   {
     if (!pub)
       return;
@@ -124,7 +127,6 @@ public:
     ScopedAction freeChunk([this, &chunk] { if (chunk) pub->freeChunk(chunk); });
 
     const auto len = ros::serialization::serializationLength(img);
-    ROS_DEBUG("image ser len %u", len);
 
     chunk = pub->allocateChunkWithHeader(len, UseDynamicSizes);
     if (!chunk)
@@ -135,62 +137,6 @@ public:
       static_cast<uint32_t>(chunk->m_info.m_payloadSize));
 
     ros::serialization::serialize(stream, img);
-
-    pub->sendChunk(chunk);
-
-    // once the chunk has been sent, we don't want to free it - that's a job
-    // for the receivers.
-    chunk = nullptr;
-  }
-
-  void publish(const sensor_msgs::Image &img)
-  {
-    if (!pub)
-      return;
-
-    iox::mepoo::ChunkHeader *chunk{ };
-    ScopedAction freeChunk([this, &chunk] { if (chunk) pub->freeChunk(chunk); });
-
-    const auto len = ros::serialization::serializationLength(img);
-    ROS_DEBUG("image ser len %u", len);
-
-    chunk = pub->allocateChunkWithHeader(len, UseDynamicSizes);
-    if (!chunk)
-      return;
-
-    ros::serialization::OStream stream(
-      reinterpret_cast<uint8_t *>(chunk->payload()),
-      static_cast<uint32_t>(chunk->m_info.m_payloadSize));
-
-    ros::serialization::serialize(stream, img);
-
-    pub->sendChunk(chunk);
-
-    // once the chunk has been sent, we don't want to free it - that's a job
-    // for the receivers.
-    chunk = nullptr;
-  }
-
-  void publish(const sensor_msgs::CameraInfo &info)
-  {
-    if (!pub)
-      return;
-
-    iox::mepoo::ChunkHeader *chunk{ };
-    ScopedAction freeChunk([this, &chunk] { if (chunk) pub->freeChunk(chunk); });
-
-    const auto len = ros::serialization::serializationLength(info);
-    ROS_DEBUG("image ser len %u", len);
-
-    chunk = pub->allocateChunkWithHeader(len, UseDynamicSizes);
-    if (!chunk)
-      return;
-
-    ros::serialization::OStream stream(
-      reinterpret_cast<uint8_t *>(chunk->payload()),
-      static_cast<uint32_t>(chunk->m_info.m_payloadSize));
-
-    ros::serialization::serialize(stream, info);
 
     pub->sendChunk(chunk);
 
@@ -358,11 +304,13 @@ void ArenaCameraNode::init()
 
   // create iox publishers, if configured to do so.
   bool use_iox = false;
-  nh_.param<bool>("use_iceoryx_image_pub", use_iox);
+  nh_.getParam("use_iceoryx_image_pub", use_iox);
+  ROS_INFO("arena: iox publisher option %d", use_iox);
+
   if (use_iox)
   {
-    ROS_DEBUG("instantiating iox publishers");
-    iox_state_->iox_raw = IoxCameraPublisher(nh_, "image_raw");
+    ROS_DEBUG("arena: instantiating iox publisher");
+    iox_state_->iox_raw = IoxCameraPublisher(nh_, img_raw_pub_.getTopic());
   }
 
   if (!configureMaxFrameRateSettings())
@@ -948,7 +896,7 @@ void ArenaCameraNode::setupRectification()
 
   if (!iox_state_->iox_rect)
   {
-    iox_state_->iox_rect = IoxPublisher(nh_, "image_rect");
+    iox_state_->iox_rect = IoxPublisher(nh_, img_rect_pub_->getTopic());
   }
 
   if (!grab_imgs_rect_as_)
